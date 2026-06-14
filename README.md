@@ -19,7 +19,7 @@ The core contribution is a **Hybrid-VQC** model that integrates:
 - Amplitude embedding of behavioral feature vectors
 - Pauli-Z measurement → classical post-quantum head
 - Temperature scaling for calibration
-- Evaluated against BiLSTM, SVM, and Singh et al. baselines
+- Evaluated against BiLSTM (Singh et al.), SVM, and Naive Bayes baselines
 
 A key empirical finding is **BiLSTM catastrophic degradation** on CERT r5.2 as training size grows, while Hybrid-VQC maintains stable, reliable performance — making it particularly suited for real-world insider threat scenarios where labeled data is scarce.
 
