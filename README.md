@@ -3,7 +3,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/) [![PennyLane](https://img.shields.io/badge/PennyLane-0.36%2B-green)](https://pennylane.ai/) 
 
-> **Hybrid Quantum-Classical Neural Network architecture combining Variational Quantum Circuits (VQC).
+> **Hybrid Quantum-Classical Neural Network architecture combining Variational Quantum Circuits (VQC).**
 
 ---
 
