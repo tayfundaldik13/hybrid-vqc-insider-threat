@@ -1,6 +1,3 @@
-"""
-CERT r5.2 Behavioral Feature Extraction
-"""
 import os
 import re
 import pickle
@@ -9,9 +6,10 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
-R52_DIR      = "your directory"
-ANSWERS_DIR  = "your directory"
-OUTPUT_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+_HERE        = os.path.dirname(os.path.abspath(__file__))
+R52_DIR      = os.environ.get("CERT_R52_DIR", os.path.join(_HERE, "raw_data", "r5.2"))
+ANSWERS_DIR  = os.environ.get("CERT_ANSWERS_DIR", os.path.join(_HERE, "raw_data", "answers"))
+OUTPUT_DIR   = os.path.join(_HERE, "data")
 OUTPUT_PATH  = os.path.join(OUTPUT_DIR, "behavioral_features.pkl")
 
 WORK_START   = 8
@@ -36,7 +34,7 @@ def after_hours(hour_series):
 def get_malicious_users():
     df = pd.read_csv(os.path.join(ANSWERS_DIR, "insiders.csv"))
     r52 = df[df["dataset"] == 5.2]["user"].dropna().unique()
-    print(f"Malicious users (r5.2): {len(r52)}")
+    print(f"   Malicious users (r5.2): {len(r52)}")
     return set(r52)
 
 
@@ -87,12 +85,12 @@ def load_logon():
         after_hours_logon=("ah_logon",  "sum"),
         unique_pcs       =("pc",        "nunique"),
     ).reset_index()
-    print(f"Logon user-days: {len(agg):,}")
+    print(f"   Logon user-days: {len(agg):,}")
     return agg
 
 
 def load_device():
-    print("Loading device.csv...")
+    print("   Loading device.csv...")
     df = pd.read_csv(
         os.path.join(R52_DIR, "device.csv"),
         usecols=["date", "user", "activity"],
@@ -111,7 +109,7 @@ def load_device():
 
 
 def load_email():
-    print("Loading email.csv...")
+    print("   Loading email.csv...")
     df = pd.read_csv(
         os.path.join(R52_DIR, "email.csv"),
         usecols=["date", "user", "to", "size", "attachments", "activity"],
@@ -144,7 +142,7 @@ def load_email():
 
 
 def load_file():
-    print("Loading file.csv...")
+    print("   Loading file.csv...")
     df = pd.read_csv(
         os.path.join(R52_DIR, "file.csv"),
         usecols=["date", "user", "filename", "to_removable_media", "from_removable_media"],
@@ -166,12 +164,12 @@ def load_file():
         to_removable_media_count  =("to_rem",   "sum"),
         from_removable_media_count=("from_rem", "sum"),
     ).reset_index()
-    print(f"File user-days: {len(agg):,}")
+    print(f"   File user-days: {len(agg):,}")
     return agg
 
 
 def load_decoy():
-    print("Loading decoy_file.csv...")
+    print("   Loading decoy_file.csv...")
     decoy_files = set(
         pd.read_csv(os.path.join(R52_DIR, "decoy_file.csv"))["decoy_filename"].str.lower()
     )
@@ -187,19 +185,19 @@ def load_decoy():
     agg = file_df.groupby(["user", "date_only"]).agg(
         decoy_accesses=("is_decoy", "sum"),
     ).reset_index()
-    print(f"Decoy - user-days with any access: {(agg['decoy_accesses'] > 0).sum():,}")
+    print(f"   Decoy - user-days with any access: {(agg['decoy_accesses'] > 0).sum():,}")
     return agg
 
 
 def load_http():
-    print("Loading http.csv ...")
+    print("   Loading http.csv (chunked)...")
     http_path = os.path.join(R52_DIR, "http.csv")
     chunks = []
 
     for i, chunk in enumerate(
         pd.read_csv(http_path, usecols=["date", "user", "url"], chunksize=CHUNK_SIZE)
     ):
-        dt= parse_dt(chunk["date"])
+        dt                 = parse_dt(chunk["date"])
         chunk["date_only"] = dt.dt.date
         chunk["hour"]      = dt.dt.hour
         chunk["ah_http"]   = after_hours(chunk["hour"]).astype(int)
@@ -215,7 +213,7 @@ def load_http():
         chunks.append(agg)
 
         if (i + 1) % 10 == 0:
-            print(f"chunk {i+1} processed...")
+            print(f"     chunk {i+1} processed...")
 
     http_df = (
         pd.concat(chunks)
@@ -223,12 +221,12 @@ def load_http():
         .sum()
         .reset_index()
     )
-    print(f"HTTP user-days: {len(http_df):,}")
+    print(f"   HTTP user-days: {len(http_df):,}")
     return http_df
 
 
 def merge_features(logon, device, email, file_df, http, decoy, ldap, ocean):
-    print("Merging all feature tables...")
+    print("   Merging all feature tables...")
 
     df = logon.copy()
 
@@ -318,8 +316,8 @@ def main():
     df = merge_features(logon, device, email, file_df, http, decoy, ldap, ocean)
 
     df["label"] = df["user"].isin(malicious).astype(int)
-    print(f"Normal user-days:  {(df['label']==0).sum():,}")
-    print(f"Insider user-days: {(df['label']==1).sum():,}")
+    print(f"   Normal user-days:  {(df['label']==0).sum():,}")
+    print(f"   Insider user-days: {(df['label']==1).sum():,}")
 
     X_raw = df[FEATURE_COLS].values.astype(np.float32)
     y     = df["label"].values.astype(int)
@@ -331,7 +329,7 @@ def main():
     pca   = PCA(n_components=16, svd_solver="full")
     X_pca = pca.fit_transform(X_scaled).astype(np.float32)
     explained = pca.explained_variance_ratio_.sum()
-    print(f"   PCA: {X_scaled.shape[1]} → {X_pca.shape[1]} components "
+    print(f"   PCA: {X_scaled.shape[1]} -> {X_pca.shape[1]} components "
           f"(explained variance: {explained:.3f})")
 
     out = {
@@ -348,9 +346,9 @@ def main():
         pickle.dump(out, f)
 
     print(f"\nSaved: {OUTPUT_PATH}")
-    print(f"X_raw shape:  {X_scaled.shape}")
-    print(f"X_pca shape:  {X_pca.shape}")
-    print(f"Labels:       {y.sum()} insider / {(y==0).sum()} normal")
+    print(f"   X_raw shape:  {X_scaled.shape}")
+    print(f"   X_pca shape:  {X_pca.shape}")
+    print(f"   Labels:       {y.sum()} insider / {(y==0).sum()} normal")
     print("=" * 60)
 
 

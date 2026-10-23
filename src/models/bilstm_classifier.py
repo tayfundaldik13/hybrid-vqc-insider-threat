@@ -1,7 +1,3 @@
-"""
-BiLSTM Classifier — Singh et al. (J. Ambient Intell. Humanized Comput., 2023)
-Adapted for 16-dim PCA behavioral features.
-"""
 import torch
 import torch.nn as nn
 
@@ -23,6 +19,6 @@ class BiLSTMClassifier(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.unsqueeze(-1)
-        out, _ = self.bilstm(x)         
-        last = out[:, -1, :]             
-        return self.classifier(last).squeeze(1) 
+        out, _ = self.bilstm(x)
+        last = out[:, -1, :]
+        return self.classifier(last).squeeze(1)

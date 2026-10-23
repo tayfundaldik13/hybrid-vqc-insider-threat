@@ -1,6 +1,3 @@
-"""
-Optuna Hyperparameter Tuning for SVM
-"""
 import os
 import sys
 import random
@@ -9,10 +6,13 @@ from sklearn.svm import SVC
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
 from src.data_process import prepare_cert_embeddings, create_tuning_eval_split
+from src.data_process import GroupAwareStratifiedKFold as StratifiedKFold, use_full_pool
+use_full_pool()
+from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'src', 'config.py'))
 
 try:
     import optuna
@@ -23,9 +23,9 @@ except ImportError:
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SEEDS           = [42]
+SEEDS           = [42, 43, 44]
 TOTAL_POOL_SIZE = 990
-TUNING_SIZE     = 90
+TUNING_SIZE     = 100
 N_CV_FOLDS      = 3
 N_TRIALS        = 30
 
@@ -38,15 +38,15 @@ def set_all_seeds(seed):
 def get_tuning_pools():
     tuning_pools = {}
     for seed in SEEDS:
-        full_emb, full_lab, full_txt = prepare_cert_embeddings(
+        full_emb, full_lab = prepare_cert_embeddings(
             max_size=TOTAL_POOL_SIZE, seed=seed
         )
         tuning, _ = create_tuning_eval_split(
-            full_emb, full_lab, tuning_size=TUNING_SIZE, seed=seed, texts=full_txt
+            full_emb, full_lab, tuning_size=TUNING_SIZE, seed=seed
         )
-        tune_emb, tune_lab, _ = tuning
+        tune_emb, tune_lab = tuning
         tuning_pools[seed] = (tune_emb, tune_lab)
-        print(f"Seed {seed}: tuning={len(tune_emb)} "
+        print(f"   Seed {seed}: tuning={len(tune_emb)} "
               f"(threat={int(tune_lab.sum())}, normal={int((tune_lab == 0).sum())})")
     return tuning_pools
 
@@ -56,6 +56,7 @@ def make_objective(tuning_pools):
         C      = trial.suggest_float("C", 1e-3, 1e3, log=True)
         kernel = trial.suggest_categorical("kernel", ["rbf", "linear", "poly"])
         gamma  = trial.suggest_categorical("gamma", ["scale", "auto"])
+        class_weight = trial.suggest_categorical("class_weight", [None, "balanced"])
 
         all_f1s = []
         for seed in SEEDS:
@@ -74,12 +75,13 @@ def make_objective(tuning_pools):
                     C=C,
                     kernel=kernel,
                     gamma=gamma,
+                    class_weight=class_weight,
                     probability=True,
                     random_state=seed,
                 )
                 model.fit(X_train, y_train)
                 preds = model.predict(X_val)
-                f1 = f1_score(y_val, preds, zero_division=0)
+                f1 = f1_score(y_val, preds, average="macro", zero_division=0)
                 all_f1s.append(f1)
 
         mean_f1 = np.mean(all_f1s)
@@ -91,12 +93,12 @@ def make_objective(tuning_pools):
 
 def main():
     print("=" * 70)
-    print("Optuna — SVM")
-    print(f"Reference: Almusawy & Alrammahi (2024), IJEETC Vol. 13, No. 5")
-    print(f"Tuning: C [1e-3, 1e3 log], kernel [rbf/linear/poly], gamma [scale/auto]")
-    print(f"Tuning pool: {TUNING_SIZE} samples (isolated)")
-    print(f"Seeds: {SEEDS} x {N_CV_FOLDS}-fold CV = {len(SEEDS) * N_CV_FOLDS} evals/trial")
-    print(f"Trials: {N_TRIALS}")
+    print("OPTUNA HYPERPARAMETER TUNING - SVM")
+    print(f"   Reference: Almusawy & Alrammahi (2024), IJEETC Vol. 13, No. 5")
+    print(f"   Tuning: C [1e-3, 1e3 log], kernel [rbf/linear/poly], gamma [scale/auto]")
+    print(f"   Tuning pool: {TUNING_SIZE} samples (20% threat / 80% normal)")
+    print(f"   Seeds: {SEEDS} x {N_CV_FOLDS}-fold CV = {len(SEEDS) * N_CV_FOLDS} evals/trial")
+    print(f"   Trials: {N_TRIALS}")
     print("=" * 70)
 
     print(f"\nPreparing tuning pools ({TUNING_SIZE} samples x {len(SEEDS)} seeds)...")
@@ -115,24 +117,27 @@ def main():
     study.optimize(make_objective(tuning_pools), n_trials=N_TRIALS, show_progress_bar=True)
 
     print(f"\n{'=' * 70}")
-    print("Best Trial")
+    print("BEST TRIAL")
     print(f"{'=' * 70}")
     best = study.best_trial
-    print(f"F1 (mean across {len(SEEDS)}seeds x {N_CV_FOLDS}folds): {best.value:.4f} "
+    print(f"   Macro-F1 (mean across {len(SEEDS)}seeds x {N_CV_FOLDS}folds): {best.value:.4f} "
           f"(+/-{best.user_attrs.get('f1_std', 0):.4f})")
-    print(f"{'─' * 70}")
+
+    print(f"\nCopy-paste into main_svm.py:")
+    print(f"{'-' * 70}")
     p = best.params
     print(f"SVM_C      = {p['C']:.6f}")
     print(f"SVM_KERNEL = \"{p['kernel']}\"")
     print(f"SVM_GAMMA  = \"{p['gamma']}\"")
+    print(f"SVM_CLASS_WEIGHT = {p['class_weight']!r}")
 
-    print(f"\n{'─' * 70}")
-    print("Top 5 Trials:")
-    print(f"{'─' * 70}")
+    print(f"\n{'-' * 70}")
+    print("TOP 5 TRIALS:")
+    print(f"{'-' * 70}")
     trials = sorted(study.trials, key=lambda t: t.value if t.value else 0, reverse=True)
     for i, t in enumerate(trials[:5]):
         std = t.user_attrs.get("f1_std", 0)
-        print(f"  #{i+1} F1={t.value:.4f}+/-{std:.4f} | "
+        print(f"  #{i+1} Macro-F1={t.value:.4f}+/-{std:.4f} | "
               f"C={t.params.get('C', 0):.6f}  "
               f"kernel={t.params.get('kernel', '')}  "
               f"gamma={t.params.get('gamma', '')}")

@@ -1,6 +1,3 @@
-"""
-Quantum VQC Ablation Study for CERT r4.2
-"""
 import os
 import time
 import json
@@ -10,7 +7,6 @@ import torch
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
 from scipy import stats as sp_stats
-import psutil, os as _os
 
 from src import config
 from src.models.quantum_vqc import HybridQuantumModel
@@ -36,19 +32,16 @@ ABLATION_CONFIGS = {
     "qubits_4":      dict(n_qubits=4, n_layers=2, nn_hidden=8,  nn_depth=1, pre_hidden=0,  pca_dim=16),
     "qubits_6":      dict(n_qubits=6, n_layers=2, nn_hidden=8,  nn_depth=1, pre_hidden=0,  pca_dim=16),
     "qubits_9":      dict(n_qubits=9, n_layers=2, nn_hidden=8,  nn_depth=1, pre_hidden=0,  pca_dim=16),
-    
     "layers_1":      dict(n_qubits=9, n_layers=1, nn_hidden=8,  nn_depth=1, pre_hidden=0,  pca_dim=16),
     "layers_3":      dict(n_qubits=9, n_layers=3, nn_hidden=8,  nn_depth=1, pre_hidden=0,  pca_dim=16),
-
     "post_none":     dict(n_qubits=9, n_layers=2, nn_hidden=8,  nn_depth=0, pre_hidden=0,  pca_dim=16),
     "post_wide":     dict(n_qubits=9, n_layers=2, nn_hidden=32, nn_depth=1, pre_hidden=0,  pca_dim=16),
     "post_deep":     dict(n_qubits=9, n_layers=2, nn_hidden=16, nn_depth=2, pre_hidden=0,  pca_dim=16),
-    
     "pre_hidden_32": dict(n_qubits=9, n_layers=2, nn_hidden=8,  nn_depth=1, pre_hidden=32, pca_dim=16),
     "pre_hidden_64": dict(n_qubits=9, n_layers=2, nn_hidden=8,  nn_depth=1, pre_hidden=64, pca_dim=16),
-    
     "pca_8":         dict(n_qubits=9, n_layers=2, nn_hidden=8,  nn_depth=1, pre_hidden=0,  pca_dim=8),
 }
+
 
 def set_all_seeds(seed: int):
     random.seed(seed)
@@ -57,6 +50,7 @@ def set_all_seeds(seed: int):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 
 def train_and_eval(cfg: dict, X_train_np, y_train_np, X_test_np, y_test_np, seed: int):
     pca_dim = cfg["pca_dim"]
@@ -112,6 +106,7 @@ def train_and_eval(cfg: dict, X_train_np, y_train_np, X_test_np, y_test_np, seed
 
 
 def run_ablation():
+    import psutil, os as _os
     _proc = psutil.Process(_os.getpid())
     pipeline_start = time.time()
     mem_start = _proc.memory_info().rss
@@ -149,7 +144,7 @@ def run_ablation():
 
     for cfg_name, cfg in ABLATION_CONFIGS.items():
         print(f"\n{'#'*60}")
-        print(f"Ablation Configuration: {cfg_name}")
+        print(f"ABLATION CONFIG: {cfg_name}")
         print(f"  {cfg}")
         print(f"{'#'*60}")
 
@@ -159,17 +154,17 @@ def run_ablation():
         for seed_idx, seed in enumerate(seeds):
             seed_key = str(seed)
             if seed_key in all_results[cfg_name]:
-                print(f"Seed {seed} already done — skipping.")
+                print(f"  SEED {seed} already done - skipping.")
                 continue
 
-            print(f"\nSeed {seed} ({seed_idx+1}/{len(seeds)})")
+            print(f"\n  SEED {seed} ({seed_idx+1}/{len(seeds)})")
             set_all_seeds(seed)
 
-            full_embeddings, full_labels, full_texts = prepare_cert_embeddings(
+            full_embeddings, full_labels = prepare_cert_embeddings(
                 max_size=total_pool, seed=seed
             )
             stages = create_nonoverlapping_stages(
-                full_embeddings, full_labels, data_sizes, seed=seed, texts=full_texts
+                full_embeddings, full_labels, data_sizes, seed=seed
             )
 
             all_results[cfg_name][seed_key] = {}
@@ -180,7 +175,7 @@ def run_ablation():
                 print(f"\n  {'='*50}")
                 print(f"  Size={data_size}, Seed={seed}, Config={cfg_name}")
 
-                stage_emb, stage_labels, _ = stages[data_size]
+                stage_emb, stage_labels = stages[data_size]
                 nested_folds = create_nested_folds(stage_labels, n_outer, n_inner=1, seed=seed)
 
                 stage_metrics = {
@@ -211,7 +206,7 @@ def run_ablation():
                         if key in fm:
                             stage_metrics[key].append(fm[key])
 
-                    print(f"Fold {outer_idx+1} (train {fm['train_latency_s']:.1f}s): "
+                    print(f"  >>> Fold {outer_idx+1} (train {fm['train_latency_s']:.1f}s): "
                           f"Acc={fm['acc']:.4f}  MCC={fm['mcc']:.4f}  "
                           f"F1={fm['f1']:.4f}  AUC={fm['auc']:.4f}  ECE={fm['ece']:.4f}")
 
@@ -224,7 +219,7 @@ def run_ablation():
             print(f"  Saved: {json_path}")
 
     print(f"\n{'='*70}")
-    print("Ablation Summary (mean across seeds × folds)")
+    print("ABLATION SUMMARY (mean across seeds x folds)")
     print(f"{'='*70}")
 
     all_cfg_names = ["baseline"] + list(ABLATION_CONFIGS.keys())
@@ -253,10 +248,10 @@ def run_ablation():
     total_time  = time.time() - pipeline_start
     peak_mem_mb = (peak_mem - mem_start) / 1024 / 1024
     print(f"\n{'='*60}")
-    print(f" Total Ablation Time: {int(total_time//3600):02d}h "
+    print(f"  Total Ablation Time: {int(total_time//3600):02d}h "
           f"{int((total_time%3600)//60):02d}m {int(total_time%60):02d}s")
-    print(f"Peak Memory: {peak_mem_mb:.1f} MB")
-    print(f"Results: {json_path}")
+    print(f"  Peak Memory: {peak_mem_mb:.1f} MB")
+    print(f"  Results: {json_path}")
     print("Ablation study complete!")
 
 

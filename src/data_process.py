@@ -1,8 +1,3 @@
-"""
-CERT r4.2 Behavioral Features (RAIT-IIT-2025 preprocessing)
-
-"""
-import pandas as pd
 import numpy as np
 import pickle
 import os
@@ -24,33 +19,14 @@ def load_behavioral_features(path: str = None):
 
     X = data["X_pca"].astype(np.float32)
     y = data["y"].astype(int)
-    print(f"Loaded: {X.shape} | insider={y.sum()} normal={(y==0).sum()}")
+    print(f"   Loaded: {X.shape} | insider={y.sum()} normal={(y==0).sum()}")
     _behavioral_cache = (X, y)
     return X, y
 
+
 def prepare_cert_embeddings(max_size: int, seed: int, cache_dir: str = None):
     X, y = load_behavioral_features()
-    texts = np.array([""] * len(y))
-    return X, y, texts
-
-
-def get_subset(embeddings, labels, size: int, seed: int,
-               texts=None, threat_ratio: float = 0.4):
-    np.random.seed(seed)
-    pos_idx = np.where(labels == 1)[0]
-    neg_idx = np.where(labels == 0)[0]
-
-    n_threat = int(size * threat_ratio)
-    n_normal = size - n_threat
-
-    sel_pos = np.random.choice(pos_idx, min(n_threat, len(pos_idx)), replace=False)
-    sel_neg = np.random.choice(neg_idx, min(n_normal, len(neg_idx)), replace=False)
-    selected = np.concatenate([sel_pos, sel_neg])
-    np.random.shuffle(selected)
-
-    if texts is not None:
-        return embeddings[selected], labels[selected], texts[selected]
-    return embeddings[selected], labels[selected]
+    return X, y
 
 
 def create_nested_folds(labels, n_outer: int, n_inner: int, seed: int):
@@ -79,7 +55,7 @@ def create_nested_folds(labels, n_outer: int, n_inner: int, seed: int):
 
 
 def create_nonoverlapping_stages(embeddings, labels, data_sizes, seed,
-                                  texts=None, threat_ratio=0.4):
+                                  threat_ratio=0.4):
     total_needed = sum(data_sizes)
     np.random.seed(seed)
 
@@ -111,16 +87,21 @@ def create_nonoverlapping_stages(embeddings, labels, data_sizes, seed,
         stage_idx = np.concatenate([stage_pos, stage_neg])
         np.random.shuffle(stage_idx)
 
-        if texts is not None:
-            stages[size] = (embeddings[stage_idx], labels[stage_idx], texts[stage_idx])
-        else:
-            stages[size] = (embeddings[stage_idx], labels[stage_idx])
+        stages[size] = (embeddings[stage_idx], labels[stage_idx])
 
     return stages
 
 
+def create_full_data_stage(embeddings, labels):
+    n = len(labels)
+    print(f"   Full data stage: {n} samples "
+          f"(threat={int(labels.sum())}, normal={int((labels == 0).sum())}, "
+          f"ratio={labels.mean():.3f})")
+    return {None: (embeddings, labels)}
+
+
 def create_tuning_eval_split(embeddings, labels, tuning_size=100, seed=42,
-                              texts=None, threat_ratio=0.4):
+                              threat_ratio=0.4):
     np.random.seed(seed)
 
     pos_idx = np.where(labels == 1)[0]
@@ -142,11 +123,46 @@ def create_tuning_eval_split(embeddings, labels, tuning_size=100, seed=42,
     eval_idx = np.concatenate([eval_pos, eval_neg])
     np.random.shuffle(eval_idx)
 
-    if texts is not None:
-        tuning = (embeddings[tune_idx], labels[tune_idx], texts[tune_idx])
-        evaluation = (embeddings[eval_idx], labels[eval_idx], texts[eval_idx])
-    else:
-        tuning = (embeddings[tune_idx], labels[tune_idx])
-        evaluation = (embeddings[eval_idx], labels[eval_idx])
+    tuning = (embeddings[tune_idx], labels[tune_idx])
+    evaluation = (embeddings[eval_idx], labels[eval_idx])
 
     return tuning, evaluation
+
+
+_users_cache = None
+_GROUPS_BY_LEN = {}
+
+
+def use_full_pool():
+    pass
+
+
+def use_tuning_pool():
+    pass
+
+
+def use_eval_pool():
+    pass
+
+
+class GroupAwareStratifiedKFold:
+    def __init__(self, n_splits=5, shuffle=False, random_state=None):
+        self.n_splits = n_splits
+        self.shuffle = shuffle
+        self.random_state = random_state
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_splits
+
+    def split(self, X, y=None, groups=None):
+        y_arr = np.asarray(y)
+        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=self.shuffle,
+                              random_state=self.random_state if self.shuffle else None)
+        folds = skf.split(np.zeros((len(y_arr), 1)), y_arr)
+        return (f for f in list(folds) if len(np.unique(y_arr[f[0]])) > 1)
+
+
+def multi_pool_folds(pools, n_splits, seed, kfold_cls):
+    for pi, (Xp, yp) in enumerate(pools):
+        for tr, vl in kfold_cls(n_splits=n_splits, shuffle=True, random_state=seed + pi).split(Xp, yp):
+            yield Xp, yp, tr, vl

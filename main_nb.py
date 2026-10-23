@@ -1,6 +1,3 @@
-"""
-Naive Bayes
-"""
 import os
 import time
 import random
@@ -23,7 +20,7 @@ RESULTS_DIR    = os.path.join(BASE_DIR, "results_nb")
 CHECKPOINT_DIR = os.path.join(BASE_DIR, "checkpoints_nb")
 CACHE_DIR      = os.path.join(BASE_DIR, "cache_nb")
 
-VAR_SMOOTHING = 1.32e-08
+VAR_SMOOTHING = config.VAR_SMOOTHING
 
 
 def set_all_seeds(seed: int):
@@ -62,9 +59,9 @@ def run_pipeline():
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
     os.makedirs(CACHE_DIR, exist_ok=True)
 
-    print(f"Naive Bayes")
-    print(f"var_smoothing={VAR_SMOOTHING:.2e}")
-    print(f"Seeds: {seeds}  |  Data Sizes: {data_sizes}")
+    print(f"NAIVE BAYES PIPELINE (Dosh 2021)")
+    print(f"   GaussianNB var_smoothing={VAR_SMOOTHING:.2e}")
+    print(f"   Seeds: {seeds}  |  Data Sizes: {data_sizes}")
     print(f"{'='*60}\n")
 
     json_path = os.path.join(RESULTS_DIR, "nb_results.json")
@@ -79,34 +76,38 @@ def run_pipeline():
         all_results = {}
 
     for seed_idx, seed in enumerate(seeds):
-        if seed in all_results:
-            print(f"\nSEED {seed} already done — skipping.")
+        if seed in all_results and all(ds in all_results[seed] for ds in data_sizes):
+            print(f"\nSEED {seed} already done - skipping.")
             continue
         print(f"\n{'#'*60}")
-        print(f"Seed {seed} ({seed_idx+1}/{len(seeds)})")
+        print(f"SEED {seed} ({seed_idx+1}/{len(seeds)})")
         print(f"{'#'*60}")
 
         set_all_seeds(seed)
-        full_embeddings, full_labels, full_texts = prepare_cert_embeddings(
+        full_embeddings, full_labels = prepare_cert_embeddings(
             max_size=total_pool, seed=seed
         )
         stages = create_nonoverlapping_stages(
-            full_embeddings, full_labels, data_sizes, seed=seed, texts=full_texts
+            full_embeddings, full_labels, data_sizes, seed=seed
         )
         for ds in data_sizes:
-            s_emb, s_lab, _ = stages[ds]
-            print(f"Stage {ds}: {len(s_emb)} samples "
+            s_emb, s_lab = stages[ds]
+            print(f"   Stage {ds}: {len(s_emb)} samples "
                   f"(threat={int(s_lab.sum())}, normal={int((s_lab==0).sum())})")
 
-        all_results[seed] = {}
+        all_results.setdefault(seed, {})
 
         for stage_idx, data_size in enumerate(data_sizes):
+
+            if data_size in all_results[seed]:
+                print(f"   [SKIP] Size={data_size} already completed for seed {seed}.")
+                continue
             stage_start = time.time()
             print(f"\n{'='*60}")
-            print(f"Stage {stage_idx+1}/{len(data_sizes)}: Size={data_size}, Seed={seed}")
+            print(f"STAGE {stage_idx+1}/{len(data_sizes)}: Size={data_size}, Seed={seed}")
             print(f"{'='*60}")
 
-            stage_emb, stage_labels, _ = stages[data_size]
+            stage_emb, stage_labels = stages[data_size]
             nested_folds = create_nested_folds(stage_labels, n_outer, n_inner=1, seed=seed)
 
             stage_metrics = {
@@ -122,7 +123,7 @@ def run_pipeline():
                 outer_train_idx = fold_data["outer_train"]
                 outer_test_idx  = fold_data["outer_test"]
 
-                print(f"\n  {'─'*50}")
+                print(f"\n  {'-'*50}")
                 print(f"  Outer Fold {outer_idx+1}/{n_outer}: "
                       f"Train={len(outer_train_idx)}, Test={len(outer_test_idx)}")
 
@@ -131,6 +132,7 @@ def run_pipeline():
                 y_train = stage_labels[outer_train_idx]
                 y_test  = stage_labels[outer_test_idx]
 
+                mem_fold_start = _proc.memory_info().rss
                 set_all_seeds(seed)
                 preds, probs, train_latency, infer_latency = train_and_evaluate(
                     X_train, y_train, X_test, y_test
@@ -144,9 +146,15 @@ def run_pipeline():
                 fold_metrics["train_latency_s"]  = train_latency
                 fold_metrics["infer_latency_ms"] = infer_latency * 1000 / max(len(y_test), 1)
                 fold_metrics["total_latency_s"]  = train_latency + infer_latency
-                fold_metrics["total_mem_mb"]     = 0.0
+                fold_metrics["total_mem_mb"]     = max(0.0, (current_rss - mem_fold_start) / 1024 / 1024)
                 fold_metrics["n_params"]         = 0
                 fold_metrics["ece"]              = calculate_ece(y_test, probs)
+
+                _pred_dir = os.path.join(RESULTS_DIR, "predictions")
+                os.makedirs(_pred_dir, exist_ok=True)
+                np.savez_compressed(
+                    os.path.join(_pred_dir, f"seed{seed}_size{data_size}_fold{outer_idx}.npz"),
+                    y_true=y_test, y_pred=preds, test_idx=outer_test_idx)
 
                 for key in stage_metrics:
                     if key in fold_metrics:
@@ -192,11 +200,12 @@ def run_pipeline():
     total_time  = time.time() - pipeline_start
     peak_mem_mb = (peak_mem - mem_start) / 1024 / 1024
     print(f"\n{'='*60}")
-    print(f"Total Pipeline Latency : {int(total_time//3600):02d}h "
+    print(f"  Total Pipeline Latency : {int(total_time//3600):02d}h "
           f"{int((total_time%3600)//60):02d}m {int(total_time%60):02d}s")
+    print(f"  Peak Memory Usage      : {peak_mem_mb:.1f} MB")
     print(f"{'='*60}")
-    print(f"Results: {json_path}")
-    print("Naive Bayes Pipeline completed.")
+    print(f"  Results: {json_path}")
+    print("Naive Bayes Pipeline completed!")
 
 
 if __name__ == "__main__":

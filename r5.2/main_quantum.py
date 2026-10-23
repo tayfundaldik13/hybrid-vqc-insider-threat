@@ -1,6 +1,3 @@
-"""
-Hybrid Quantum VQC
-"""
 import os
 import time
 import random
@@ -20,8 +17,12 @@ except ImportError:
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config
 from src import quantum_config as qconfig
+from paper_arch import check_config as _check_arch
+_check_arch(qconfig, "r5.2")
 from src.models.quantum_vqc import (
     HybridQuantumModel, save_hybrid_checkpoint,
     load_hybrid_checkpoint, get_hybrid_checkpoint_path
@@ -66,7 +67,7 @@ def run_inner_optuna(outer_train_emb, outer_train_labels, seed, n_trials):
 
     def objective(trial):
         lr         = trial.suggest_float("lr", 1e-4, 0.05, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [5, 8, 10])
+        batch_size = trial.suggest_categorical("batch_size", [5, 8, 10, 16, 32])
         epochs     = trial.suggest_categorical("epochs", [40, 60, 80])
 
         set_all_seeds(seed)
@@ -134,7 +135,7 @@ def train_one_fold(model, optimizer, loss_fn, train_dl, X_test, y_test, epochs,
         targets = y_test.cpu().numpy().flatten()
     infer_latency = time.time() - infer_start
 
-    total_mem_mb = 0.0  
+    total_mem_mb = 0.0
 
     n_params = sum(p.numel() for p in model.parameters())
 
@@ -162,12 +163,16 @@ def run_quantum_pipeline():
     os.makedirs(qconfig.QUANTUM_CHECKPOINT_DIR, exist_ok=True)
     os.makedirs(qconfig.QUANTUM_RESULTS_DIR, exist_ok=True)
 
-    print(f"Hybrid Quantum VQC")
-    print(f"VQC: qubits={qconfig.N_QUBITS}, layers={qconfig.N_LAYERS}, "
+    print(f"HYBRID QUANTUM VQC PIPELINE (Nested CV: {n_outer} outer x per-fold Optuna)")
+    print(f"   Architecture: Behavioral(16-dim PCA) -> Pre-Quantum(16->{2**qconfig.N_QUBITS}) -> "
+          f"AmplitudeEmbedding -> StronglyEntanglingLayers -> Post-Quantum")
+    print(f"   VQC: qubits={qconfig.N_QUBITS}, layers={qconfig.N_LAYERS}, "
           f"amp_dim={2**qconfig.N_QUBITS}")
-    print(f"Post-Quantum NN: hidden={qconfig.NN_HIDDEN}, depth={qconfig.NN_DEPTH}")
-    print(f"Seeds: {seeds}  |  Data Sizes: {data_sizes}")
-    print(f"Wilcoxon observations: {n_outer} outer × {len(seeds)} seeds = {n_outer*len(seeds)}")
+    print(f"   Post-Quantum NN: hidden={qconfig.NN_HIDDEN}, depth={qconfig.NN_DEPTH}")
+    print(f"   Inner Optuna: {qconfig.OPTUNA_INNER_TRIALS} trials x 75/25 split "
+          f"(QMHA-style, tunes lr/bs/epochs only)")
+    print(f"   Seeds: {seeds}  |  Data Sizes: {data_sizes}")
+    print(f"   Wilcoxon observations: {n_outer} outer x {len(seeds)} seeds = {n_outer*len(seeds)}")
     print(f"{'='*60}\n")
 
     json_path_q = os.path.join(qconfig.QUANTUM_RESULTS_DIR, "quantum_results.json")
@@ -180,41 +185,45 @@ def run_quantum_pipeline():
         print(f"Loaded existing results for seeds: {sorted(all_results.keys())}")
     else:
         all_results = {}
-    ## enron_threshold = 0.5
+    mean_threshold = 0.5
 
     for seed_idx, seed in enumerate(seeds):
-        if seed in all_results:
-            print(f"\Seed {seed} already done — skipping.")
+        if seed in all_results and all(ds in all_results[seed] for ds in data_sizes):
+            print(f"\nSEED {seed} already done - skipping.")
             continue
         print(f"\n{'#'*60}")
-        print(f"Seed {seed} ({seed_idx+1}/{len(seeds)})")
+        print(f"SEED {seed} ({seed_idx+1}/{len(seeds)})")
         print(f"{'#'*60}")
 
         set_all_seeds(seed)
 
-        full_embeddings, full_labels, full_texts = prepare_cert_embeddings(
-            max_size=total_pool, seed=seed  
+        full_embeddings, full_labels = prepare_cert_embeddings(
+            max_size=total_pool, seed=seed
         )
 
         stages = create_nonoverlapping_stages(
-            full_embeddings, full_labels, data_sizes, seed=seed, texts=full_texts
+            full_embeddings, full_labels, data_sizes, seed=seed
         )
         for ds in data_sizes:
-            s_emb, s_lab, _ = stages[ds]
-            print(f"Stage {ds}: {len(s_emb)} samples "
+            s_emb, s_lab = stages[ds]
+            print(f"   Stage {ds}: {len(s_emb)} samples "
                   f"(threat={int(s_lab.sum())}, normal={int((s_lab == 0).sum())})")
 
         seed_stage_metrics = {}
-        all_results[seed] = {}
+        all_results.setdefault(seed, {})
 
         for stage_idx, data_size in enumerate(data_sizes):
+
+            if data_size in all_results[seed]:
+                print(f"   [SKIP] Size={data_size} already completed for seed {seed}.")
+                continue
             stage_start = time.time()
             print(f"\n{'='*60}")
-            print(f"Stage {stage_idx+1}/{len(data_sizes)}: Size={data_size}, Seed={seed}")
+            print(f"STAGE {stage_idx+1}/{len(data_sizes)}: Size={data_size}, Seed={seed}")
             print(f"{'='*60}")
 
-            stage_emb, stage_labels, _ = stages[data_size]
-            mann_whitney_p = 1.0  
+            stage_emb, stage_labels = stages[data_size]
+            mann_whitney_p = 1.0
 
             nested_folds = create_nested_folds(stage_labels, n_outer, n_inner=1, seed=seed)
 
@@ -233,8 +242,8 @@ def run_quantum_pipeline():
                 outer_train_idx = fold_data["outer_train"]
                 outer_test_idx  = fold_data["outer_test"]
 
-                print(f"\n  {'─'*50}")
-                print(f"Outer Fold {outer_idx+1}/{n_outer}: "
+                print(f"\n  {'-'*50}")
+                print(f"  Outer Fold {outer_idx+1}/{n_outer}: "
                       f"Train={len(outer_train_idx)}, Test={len(outer_test_idx)}")
 
                 opt_start = time.time()
@@ -245,7 +254,7 @@ def run_quantum_pipeline():
                     n_trials=qconfig.OPTUNA_INNER_TRIALS,
                 )
                 opt_time = time.time() - opt_start
-                print(f"Optuna ({qconfig.OPTUNA_INNER_TRIALS} trials, {opt_time:.0f}s): "
+                print(f"     Optuna ({qconfig.OPTUNA_INNER_TRIALS} trials, {opt_time:.0f}s): "
                       f"lr={best_params['lr']:.5f}  "
                       f"bs={best_params['batch_size']}  "
                       f"ep={best_params['epochs']}  "
@@ -262,6 +271,7 @@ def run_quantum_pipeline():
                     batch_size=eff_bs, shuffle=True, drop_last=True
                 )
 
+                mem_fold_start = _proc.memory_info().rss
                 set_all_seeds(seed)
                 model = HybridQuantumModel(
                     input_dim=qconfig.INPUT_DIM,
@@ -294,11 +304,18 @@ def run_quantum_pipeline():
                     )
 
                 outer_metrics["ece"] = calculate_ece(targets, outer_probs)
+
+                _pred_dir = os.path.join(qconfig.QUANTUM_RESULTS_DIR, "predictions")
+                os.makedirs(_pred_dir, exist_ok=True)
+                np.savez_compressed(
+                    os.path.join(_pred_dir, f"seed{seed}_size{data_size}_fold{outer_idx}.npz"),
+                    y_true=targets, y_pred=preds, test_idx=outer_test_idx)
+
                 for key in stage_metrics:
                     if key in outer_metrics:
                         stage_metrics[key].append(outer_metrics[key])
 
-                print(f"Outer {outer_idx+1} (train {fold_time:.1f}s): "
+                print(f"  >>> Outer {outer_idx+1} (train {fold_time:.1f}s): "
                       f"Acc={outer_metrics['acc']:.4f}  "
                       f"MCC={outer_metrics['mcc']:.4f}  "
                       f"F1={outer_metrics['f1']:.4f}  "
@@ -327,15 +344,15 @@ def run_quantum_pipeline():
                     )
 
             stage_time = time.time() - stage_start
-            print(f"Stage {data_size} completed in {stage_time:.1f}s")
+            print(f"   Stage {data_size} completed in {stage_time:.1f}s")
 
             f1_scores = stage_metrics.get("f1", [])
             if len(f1_scores) >= 3:
                 _, p_sh = sp_stats.shapiro(f1_scores)
                 fold_shapiro_ps.append(p_sh)
 
-            enron_threshold = float(np.mean(fold_thresholds)) if fold_thresholds else 0.5
-            print(f"Mean F1-max threshold (folds): {enron_threshold:.3f}")
+            mean_threshold = float(np.mean(fold_thresholds)) if fold_thresholds else 0.5
+            print(f"   Mean F1-max threshold (folds): {mean_threshold:.3f}")
 
             print_stage_report(data_size, seed, stage_metrics,
                                fold_shapiro_ps=fold_shapiro_ps,
@@ -356,9 +373,10 @@ def run_quantum_pipeline():
     total_mins  = int((total_time % 3600) // 60)
     total_secs  = int(total_time % 60)
     print(f"\n{'='*60}")
-    print(f"Total Pipeline Latency : {total_hours:02d}h {total_mins:02d}m {total_secs:02d}s  ({total_time:.1f}s)")
+    print(f"  Total Pipeline Latency : {total_hours:02d}h {total_mins:02d}m {total_secs:02d}s  ({total_time:.1f}s)")
+    print(f"  Peak Memory Usage      : {peak_mem_mb:.1f} MB")
     print(f"{'='*60}")
-    print("\nHybrid Quantum VQC Pipeline completed.")
+    print("\nHybrid Quantum VQC Pipeline completed!")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,3 @@
-"""
-Optuna Hyperparameter Tuning - NB
-"""
 import os, sys, random
 import numpy as np
 from sklearn.naive_bayes import GaussianNB
@@ -11,6 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src import config
 from src.data_process import prepare_cert_embeddings, create_tuning_eval_split
+from src.data_process import GroupAwareStratifiedKFold as StratifiedKFold, use_full_pool
+use_full_pool()
+from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'src', 'config.py'))
 
 try:
     import optuna
@@ -20,9 +20,9 @@ except ImportError:
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SEEDS           = [42]
+SEEDS           = [42, 43, 44]
 TOTAL_POOL_SIZE = 990
-TUNING_SIZE     = 90
+TUNING_SIZE     = 100
 N_CV_FOLDS      = 3
 N_TRIALS        = 30
 
@@ -35,15 +35,15 @@ def set_all_seeds(seed):
 def get_tuning_pools():
     pools = {}
     for seed in SEEDS:
-        full_emb, full_lab, full_txt = prepare_cert_embeddings(
+        full_emb, full_lab = prepare_cert_embeddings(
             max_size=TOTAL_POOL_SIZE, seed=seed
         )
         tuning, _ = create_tuning_eval_split(
-            full_emb, full_lab, tuning_size=TUNING_SIZE, seed=seed, texts=full_txt
+            full_emb, full_lab, tuning_size=TUNING_SIZE, seed=seed
         )
-        tune_emb, tune_lab, _ = tuning
+        tune_emb, tune_lab = tuning
         pools[seed] = (tune_emb, tune_lab)
-        print(f"Seed {seed}: tuning={len(tune_emb)} "
+        print(f"   Seed {seed}: tuning={len(tune_emb)} "
               f"(threat={int(tune_lab.sum())}, normal={int((tune_lab == 0).sum())})")
     return pools
 
@@ -61,15 +61,15 @@ def make_objective(pools):
                 model.fit(tune_emb[train_idx], tune_lab[train_idx])
                 probs = model.predict_proba(tune_emb[val_idx])[:, 1]
                 preds = (probs >= 0.5).astype(float)
-                all_f1s.append(f1_score(tune_lab[val_idx], preds, zero_division=0))
+                all_f1s.append(f1_score(tune_lab[val_idx], preds, average="macro", zero_division=0))
         return float(np.mean(all_f1s))
     return objective
 
 
 def main():
     print("=" * 60)
-    print("Optuna-NB ")
-    print(f"Tuning pool: {TUNING_SIZE} samples | {N_CV_FOLDS}-fold CV | {N_TRIALS} trials")
+    print("OPTUNA - NB (CERT r5.2)")
+    print(f"   Tuning pool: {TUNING_SIZE} samples (20% threat) | {N_CV_FOLDS}-fold CV | {N_TRIALS} trials")
     print("=" * 60)
 
     print("\nPreparing tuning pool...")
@@ -82,7 +82,9 @@ def main():
     study.optimize(make_objective(pools), n_trials=N_TRIALS, show_progress_bar=True)
 
     best = study.best_params
-    print(f"\nBest var_smoothing: {best['var_smoothing']:.4e}  (F1={study.best_value:.4f})")
+    print(f"\nBest var_smoothing: {best['var_smoothing']:.4e}  (Macro-F1={study.best_value:.4f})")
+    print(f"\n-> Writing to r5.2/src/config.py:")
+    print(f"VAR_SMOOTHING = {best['var_smoothing']:.6e}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,3 @@
-"""
-Utility Functions for ThesisP2 Pipeline
-"""
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -160,7 +157,7 @@ def plot_reliability_diagram(targets, probs, title, save_path=None, n_bins=10):
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=150)
-        print(f"Reliability diagram saved: {save_path}")
+        print(f"   Reliability diagram saved: {save_path}")
     plt.close()
 
     return ece
@@ -179,29 +176,29 @@ def plot_confusion_matrix(targets, preds, title, save_path=None):
     if save_path:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, dpi=150)
-        print(f"CM saved: {save_path}")
+        print(f"   CM saved: {save_path}")
     plt.close()
 
 
 def print_stage_report(stage_size, seed, all_fold_metrics,
                        fold_shapiro_ps=None, mann_whitney_p=None):
     print(f"\n{'='*60}")
-    print(f"Stage Summary: Size={stage_size}, Seed={seed}")
+    print(f"STAGE REPORT: Size={stage_size}, Seed={seed}")
     print(f"{'='*60}")
 
     for key, values in all_fold_metrics.items():
-        print(f"Mean {key.upper():<9}: %{np.mean(values)*100:.2f} (±{np.std(values)*100:.2f})")
+        print(f"  Mean {key.upper():<9}: %{np.mean(values)*100:.2f} (+/-{np.std(values)*100:.2f})")
 
     print(f"{'-'*60}")
 
     if fold_shapiro_ps:
         all_normal = all(p > 0.05 for p in fold_shapiro_ps)
         status = "All Normal" if all_normal else "Some Not Normal"
-        print(f"Shapiro (per fold):")
+        print(f"  Shapiro (per fold):")
         for i, p in enumerate(fold_shapiro_ps):
-            n_str = "Normal" if p > 0.05 else "Not Normal"
+            n_str = "" if p > 0.05 else ""
             print(f"     Fold {i+1}: P={p:.4f} {n_str}")
-        print(f"     → {status}")
+        print(f"     -> {status}")
 
     if mann_whitney_p is not None:
         if mann_whitney_p < 0.001:
@@ -210,7 +207,7 @@ def print_stage_report(stage_size, seed, all_fold_metrics,
             mw_str = "Significant"
         else:
             mw_str = "Not Significant"
-        print(f"Mann-Whitney U: P={mann_whitney_p:.6f} → {mw_str}")
+        print(f"  Mann-Whitney U: P={mann_whitney_p:.6f} -> {mw_str}")
 
     kappa_scores = all_fold_metrics.get("kappa", [])
     if kappa_scores:
@@ -220,14 +217,14 @@ def print_stage_report(stage_size, seed, all_fold_metrics,
         elif km > 0.4: k_str = "Moderate"
         elif km > 0.2: k_str = "Fair"
         else: k_str = "Slight/Poor"
-        print(f"Cohen's Kappa:   Mean={km:.4f} → {k_str}")
+        print(f"  Cohen's Kappa:   Mean={km:.4f} -> {k_str}")
 
     print(f"{'='*60}\n")
 
 
 def print_seed_summary(seed, all_stage_metrics):
     print(f"\n{'#'*60}")
-    print(f"Seed {seed} - All Stages Summary")
+    print(f"SEED {seed} - ALL STAGES SUMMARY")
     print(f"{'#'*60}")
 
     header = f"  {'Size':<6} | {'Acc':<12} | {'Kappa':<12} | {'F1':<12} | {'AUC':<12}"
@@ -237,22 +234,22 @@ def print_seed_summary(seed, all_stage_metrics):
     for size in sorted(all_stage_metrics.keys()):
         m = all_stage_metrics[size]
         print(f"  {size:<6} | "
-              f"{np.mean(m['acc'])*100:.2f}±{np.std(m['acc'])*100:.2f}  | "
-              f"{np.mean(m['kappa'])*100:.2f}±{np.std(m['kappa'])*100:.2f}  | "
-              f"{np.mean(m['f1'])*100:.2f}±{np.std(m['f1'])*100:.2f}  | "
-              f"{np.mean(m['auc'])*100:.2f}±{np.std(m['auc'])*100:.2f}")
+              f"{np.mean(m['acc'])*100:.2f}+/-{np.std(m['acc'])*100:.2f}  | "
+              f"{np.mean(m['kappa'])*100:.2f}+/-{np.std(m['kappa'])*100:.2f}  | "
+              f"{np.mean(m['f1'])*100:.2f}+/-{np.std(m['f1'])*100:.2f}  | "
+              f"{np.mean(m['auc'])*100:.2f}+/-{np.std(m['auc'])*100:.2f}")
 
     print(f"{'#'*60}\n")
 
 
 def print_final_aggregation_report(all_results, seeds, data_sizes):
     print(f"\n{'*'*70}")
-    print(f"Final Report (All Seeds × All Stages)")
+    print(f"FINAL AGGREGATION REPORT (All Seeds x All Stages)")
     print(f"{'*'*70}")
 
     for size in data_sizes:
-        print(f"\nData Size: {size}")
-        print(f"{'-'*60}")
+        print(f"\n  Data Size: {size}")
+        print(f"  {'-'*60}")
 
         aggregated = {}
         for seed in seeds:
@@ -263,15 +260,15 @@ def print_final_aggregation_report(all_results, seeds, data_sizes):
                     aggregated[metric_name].extend(values)
 
         if not aggregated:
-            print(f"No data available.")
+            print(f"  No data available.")
             continue
 
         for key in ["acc", "kappa", "mcc", "precision", "recall", "specificity",
                     "f1", "macro_f1", "auc", "auprc", "ece"]:
             if key in aggregated:
                 vals = aggregated[key]
-                print(f"{key.upper():<9}: %{np.mean(vals)*100:.2f} ± {np.std(vals)*100:.2f}  "
-                      f"(n={len(vals)}, {len(seeds)} seeds × {len(vals)//len(seeds)} folds)")
+                print(f"    {key.upper():<9}: %{np.mean(vals)*100:.2f} +/- {np.std(vals)*100:.2f}  "
+                      f"(n={len(vals)}, {len(seeds)} seeds x {len(vals)//len(seeds)} folds)")
 
         kappa_all = aggregated.get("kappa", [])
         if kappa_all:
@@ -281,7 +278,7 @@ def print_final_aggregation_report(all_results, seeds, data_sizes):
             elif km > 0.4: k_str = "Moderate"
             elif km > 0.2: k_str = "Fair"
             else: k_str = "Slight/Poor"
-            print(f"Cohen's Kappa: Mean={km:.4f} → {k_str}")
+            print(f"    Cohen's Kappa: Mean={km:.4f} -> {k_str}")
 
     print(f"\n{'*'*70}")
     print("All experiments completed!")
@@ -301,3 +298,31 @@ def save_results_json(results, filepath):
     with open(filepath, "w") as f:
         json.dump(serializable, f, indent=2)
     print(f"Results saved: {filepath}")
+
+
+def _partial_path(results_dir, seed, stage=None):
+    suffix = f"_size{stage}" if stage is not None else ""
+    return os.path.join(results_dir, f".partial_seed{seed}{suffix}.pkl")
+
+
+def _save_partial(results_dir, seed, current_fold, stage_metrics, stage=None):
+    os.makedirs(results_dir, exist_ok=True)
+    path = _partial_path(results_dir, seed, stage=stage)
+    with open(path, "wb") as f:
+        import pickle as _pickle
+        _pickle.dump({"next_fold": current_fold + 1, "stage_metrics": stage_metrics}, f)
+
+
+def _load_partial(results_dir, seed, stage=None):
+    path = _partial_path(results_dir, seed, stage=stage)
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        import pickle as _pickle
+        return _pickle.load(f)
+
+
+def _clear_partial(results_dir, seed, stage=None):
+    path = _partial_path(results_dir, seed, stage=stage)
+    if os.path.exists(path):
+        os.remove(path)

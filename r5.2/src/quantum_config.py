@@ -1,6 +1,3 @@
-"""
-Quantum-specific Configuration for r5.2 Pipeline (but I needed to break it down to get a clearer picture in my mind)
-"""
 from src.config import (
     SEEDS, DATA_SIZES, N_OUTER_FOLDS, N_INNER_FOLDS,
     BASE_DIR, PAD_DIM,
@@ -9,7 +6,7 @@ from src.config import (
     RESULTS_QUANTUM_DIR, CHECKPOINT_QUANTUM_DIR,
 )
 
-INPUT_DIM = PAD_DIM 
+INPUT_DIM = PAD_DIM
 
 LEARNING_RATE = 0.010438
 EPOCHS        = 40

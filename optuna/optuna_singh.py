@@ -1,6 +1,3 @@
-"""
-Optuna Hyperparameter Tuning for BiLSTM
-"""
 import os
 import sys
 import random
@@ -11,11 +8,14 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
 from src.models.bilstm_classifier import BiLSTMClassifier
 from src.data_process import prepare_cert_embeddings, create_tuning_eval_split
+from src.data_process import GroupAwareStratifiedKFold as StratifiedKFold, use_full_pool
+use_full_pool()
+from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'src', 'config.py'), rename={'LR': 'BILSTM_LR', 'EPOCHS': 'BILSTM_EPOCHS', 'HIDDEN_SIZE': 'BILSTM_HIDDEN', 'NUM_LAYERS': 'BILSTM_LAYERS', 'BATCH_SIZE': 'BILSTM_BATCH'})
 
 try:
     import optuna
@@ -26,9 +26,9 @@ except ImportError:
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SEEDS = [42]
+SEEDS = [42, 43, 44]
 TOTAL_POOL_SIZE = 990
-TUNING_SIZE = 90
+TUNING_SIZE = 100
 N_CV_FOLDS = 3
 N_TRIALS = 30
 
@@ -49,15 +49,15 @@ def set_all_seeds(seed):
 def get_tuning_pools():
     tuning_pools = {}
     for seed in SEEDS:
-        full_emb, full_lab, full_txt = prepare_cert_embeddings(
+        full_emb, full_lab = prepare_cert_embeddings(
             max_size=TOTAL_POOL_SIZE, seed=seed
         )
         tuning, _ = create_tuning_eval_split(
-            full_emb, full_lab, tuning_size=TUNING_SIZE, seed=seed, texts=full_txt
+            full_emb, full_lab, tuning_size=TUNING_SIZE, seed=seed
         )
-        tune_emb, tune_lab, _ = tuning
+        tune_emb, tune_lab = tuning
         tuning_pools[seed] = (tune_emb, tune_lab)
-        print(f"Seed {seed}: tuning={len(tune_emb)} "
+        print(f"   Seed {seed}: tuning={len(tune_emb)} "
               f"(threat={int(tune_lab.sum())}, normal={int((tune_lab == 0).sum())})")
     return tuning_pools
 
@@ -65,7 +65,10 @@ def get_tuning_pools():
 def make_objective(tuning_pools):
     def objective(trial):
         lr     = trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)
-        epochs = trial.suggest_categorical("epochs", [50, 100, 150, 200])
+        epochs = trial.suggest_int("epochs", 20, 100)
+        hidden_size = trial.suggest_categorical("hidden_size", [64, 128, 256])
+        num_layers  = trial.suggest_int("num_layers", 1, 3)
+        batch_size  = trial.suggest_categorical("batch_size", [16, 32, 64])
 
         device = config.DEVICE
         all_f1s = []
@@ -82,7 +85,7 @@ def make_objective(tuning_pools):
                 y_train = torch.tensor(tune_lab[train_idx], dtype=torch.float32).to(device)
                 y_val_np = tune_lab[val_idx]
 
-                effective_bs = min(BATCH_SIZE, len(X_train) - 1)
+                effective_bs = min(batch_size, len(X_train) - 1)
                 if effective_bs < 2:
                     effective_bs = 2
 
@@ -90,7 +93,7 @@ def make_objective(tuning_pools):
                                 batch_size=effective_bs, shuffle=True, drop_last=True)
 
                 model = BiLSTMClassifier(
-                    hidden_size=HIDDEN_SIZE, num_layers=NUM_LAYERS
+                    hidden_size=hidden_size, num_layers=num_layers
                 ).to(device)
                 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
                 loss_fn   = nn.BCELoss()
@@ -108,13 +111,13 @@ def make_objective(tuning_pools):
                 with torch.no_grad():
                     probs = model(X_val).cpu().numpy()
                 preds_val = (probs >= 0.5).astype(float)
-                f1 = f1_score(y_val_np, preds_val, zero_division=0)
+                f1 = f1_score(y_val_np, preds_val, average="macro", zero_division=0)
                 all_f1s.append(f1)
 
         mean_f1 = np.mean(all_f1s)
         trial.set_user_attr("f1_std", float(np.std(all_f1s)))
 
-        dummy = BiLSTMClassifier(hidden_size=HIDDEN_SIZE, num_layers=NUM_LAYERS)
+        dummy = BiLSTMClassifier(hidden_size=hidden_size, num_layers=num_layers)
         trial.set_user_attr("n_params", sum(p.numel() for p in dummy.parameters()))
 
         return mean_f1
@@ -124,15 +127,14 @@ def make_objective(tuning_pools):
 
 def main():
     print("=" * 70)
-    print("Optuna-BiLSTM")
-    print(f"Paper-fixed: hidden_size={HIDDEN_SIZE}, num_layers={NUM_LAYERS}, batch_size={BATCH_SIZE}")
-    print(f"Tuning: learning_rate, epochs")
-    print(f"Tuning pool: {TUNING_SIZE} samples")
-    print(f"Seeds: {SEEDS} x {N_CV_FOLDS}-fold CV = {len(SEEDS) * N_CV_FOLDS} evals/trial")
-    print(f"Trials: {N_TRIALS}")
+    print("OPTUNA HYPERPARAMETER TUNING - Singh et al. BiLSTM")
+    print(f"   Tuning: hidden_size, num_layers, batch_size, learning_rate, epochs (paper values 256/3/32 are inside the search space)")
+    print(f"   Tuning pool: {TUNING_SIZE} samples (20% threat / 80% normal)")
+    print(f"   Seeds: {SEEDS} x {N_CV_FOLDS}-fold CV = {len(SEEDS) * N_CV_FOLDS} evals/trial")
+    print(f"   Trials: {N_TRIALS}")
     print("=" * 70)
 
-    print(f"\nPreparing tuning pools...")
+    print(f"\nPreparing tuning pools ({TUNING_SIZE} samples x {len(SEEDS)} seeds)...")
     tuning_pools = get_tuning_pools()
 
     print(f"\n{'=' * 70}")
@@ -148,25 +150,30 @@ def main():
     study.optimize(make_objective(tuning_pools), n_trials=N_TRIALS, show_progress_bar=True)
 
     print(f"\n{'=' * 70}")
-    print("Best Trial")
+    print("BEST TRIAL")
     print(f"{'=' * 70}")
     best = study.best_trial
-    print(f"F1 (mean across {len(SEEDS)}seeds x {N_CV_FOLDS}folds): {best.value:.4f} "
+    print(f"   Macro-F1 (mean across {len(SEEDS)}seeds x {N_CV_FOLDS}folds): {best.value:.4f} "
           f"(+/-{best.user_attrs.get('f1_std', 0):.4f})")
-    print(f"Trainable params: {best.user_attrs.get('n_params', '?')}")
-    print(f"{'─' * 70}")
+    print(f"   Trainable params: {best.user_attrs.get('n_params', '?')}")
+
+    print(f"\nCopy-paste these into main_singh.py:")
+    print(f"{'-' * 70}")
     p = best.params
     print(f"LR     = {p['learning_rate']:.6f}")
     print(f"EPOCHS = {p['epochs']}")
+    print(f"HIDDEN_SIZE = {p['hidden_size']}")
+    print(f"NUM_LAYERS = {p['num_layers']}")
+    print(f"BATCH_SIZE = {p['batch_size']}")
 
-    print(f"\n{'─' * 70}")
-    print("Top 5 Trials:")
-    print(f"{'─' * 70}")
+    print(f"\n{'-' * 70}")
+    print("TOP 5 TRIALS:")
+    print(f"{'-' * 70}")
     trials = sorted(study.trials, key=lambda t: t.value if t.value else 0, reverse=True)
     for i, t in enumerate(trials[:5]):
         std = t.user_attrs.get("f1_std", 0)
         n_p = t.user_attrs.get("n_params", "?")
-        print(f"  #{i+1} F1={t.value:.4f}+/-{std:.4f} | "
+        print(f"  #{i+1} Macro-F1={t.value:.4f}+/-{std:.4f} | "
               f"lr={t.params.get('learning_rate', 0):.6f} "
               f"ep={t.params.get('epochs')} "
               f"params={n_p}")
