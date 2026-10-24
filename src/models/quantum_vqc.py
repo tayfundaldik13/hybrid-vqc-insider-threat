@@ -100,18 +100,6 @@ def save_hybrid_checkpoint(model, optimizer, epoch, fold, stage_size, seed, chec
     return path
 
 
-def load_hybrid_checkpoint(model, optimizer, path, device):
-    if not os.path.exists(path):
-        print(f"   Checkpoint not found: {path}")
-        return model, optimizer
-
-    ckpt = torch.load(path, map_location=device, weights_only=True)
-    model.load_state_dict(ckpt["model_state_dict"])
-    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-
-    prev = ckpt.get("stage_size", "?")
-    print(f"   Loaded hybrid checkpoint: stage={prev}")
-    return model, optimizer
 
 
 def get_hybrid_checkpoint_path(checkpoint_dir, seed, stage_size, fold):

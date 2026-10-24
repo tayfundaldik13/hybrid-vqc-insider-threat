@@ -17,15 +17,11 @@ except ImportError:
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config
 from src import quantum_config as qconfig
-from paper_arch import check_config as _check_arch
-_check_arch(qconfig, "r5.2")
 from src.models.quantum_vqc import (
     HybridQuantumModel, save_hybrid_checkpoint,
-    load_hybrid_checkpoint, get_hybrid_checkpoint_path
+    get_hybrid_checkpoint_path
 )
 from src.data_process import (prepare_cert_embeddings,
     create_nonoverlapping_stages, create_nested_folds)

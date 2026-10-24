@@ -40,41 +40,8 @@ def calculate_metrics(targets, preds, probs) -> Dict[str, float]:
     }
 
 
-def find_optimal_threshold(targets, probs, method="f1_max") -> float:
-    targets = np.array(targets)
-    probs = np.array(probs)
-
-    best_threshold = 0.5
-    best_f1 = -1.0
-
-    for t in np.linspace(0.1, 0.9, 50):
-        preds = (probs > t).astype(float)
-        f1 = f1_score(targets, preds, zero_division=0)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = t
-
-    return best_threshold
 
 
-def fdr_correction(p_values, alpha=0.05):
-    p_arr = np.array(p_values, dtype=float)
-    n = len(p_arr)
-    if n == 0:
-        return np.array([], dtype=bool), np.array([])
-
-    sorted_idx = np.argsort(p_arr)
-    sorted_p = p_arr[sorted_idx]
-    ranks = np.arange(1, n + 1, dtype=float)
-
-    q_raw = sorted_p * n / ranks
-    q_adj = np.minimum.accumulate(q_raw[::-1])[::-1]
-    q_adj = np.minimum(q_adj, 1.0)
-
-    q_values = np.empty(n)
-    q_values[sorted_idx] = q_adj
-
-    return q_values <= alpha, q_values
 
 
 def calculate_ece(targets, probs, n_bins=10) -> float:

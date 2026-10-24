@@ -5,7 +5,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 BASE_DIR                 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BEHAVIORAL_FEATURES_PATH = os.path.join(BASE_DIR, "data", "behavioral_features.pkl")
-SPEDIA_FEATURES_PATH     = os.path.join(BASE_DIR, "data", "spedia_behavioral_features.pkl")
 
 PAD_DIM     = 16
 OUTPUT_SIZE = 1

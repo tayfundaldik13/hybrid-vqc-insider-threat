@@ -1,16 +1,16 @@
 import os, sys, random
 import numpy as np
-from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
 from src.data_process import prepare_cert_embeddings, create_tuning_eval_split
 from src.data_process import GroupAwareStratifiedKFold as StratifiedKFold, use_full_pool
 use_full_pool()
-from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'src', 'config.py'))
+from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'src', 'config.py'))
 
 try:
     import optuna
@@ -50,19 +50,14 @@ def get_tuning_pools():
 
 def make_objective(pools):
     def objective(trial):
-        C      = trial.suggest_float("C", 1e-3, 100.0, log=True)
-        kernel = trial.suggest_categorical("kernel", ["linear", "rbf", "poly"])
-        gamma  = trial.suggest_categorical("gamma", ["scale", "auto"])
-        class_weight = trial.suggest_categorical("class_weight", [None, "balanced"])
-
+        var_smoothing = trial.suggest_float("var_smoothing", 1e-12, 1e-1, log=True)
         all_f1s = []
         for seed in SEEDS:
             tune_emb, tune_lab = pools[seed]
             skf = StratifiedKFold(n_splits=N_CV_FOLDS, shuffle=True, random_state=seed)
             for train_idx, val_idx in skf.split(tune_emb, tune_lab):
                 set_all_seeds(seed)
-                model = SVC(C=C, kernel=kernel, gamma=gamma, class_weight=class_weight,
-                            probability=True, random_state=seed)
+                model = GaussianNB(var_smoothing=var_smoothing)
                 model.fit(tune_emb[train_idx], tune_lab[train_idx])
                 probs = model.predict_proba(tune_emb[val_idx])[:, 1]
                 preds = (probs >= 0.5).astype(float)
@@ -73,7 +68,7 @@ def make_objective(pools):
 
 def main():
     print("=" * 60)
-    print("OPTUNA - SVM (CERT r5.2)")
+    print("OPTUNA - NB (CERT r5.2)")
     print(f"   Tuning pool: {TUNING_SIZE} samples (20% threat) | {N_CV_FOLDS}-fold CV | {N_TRIALS} trials")
     print("=" * 60)
 
@@ -87,15 +82,11 @@ def main():
     study.optimize(make_objective(pools), n_trials=N_TRIALS, show_progress_bar=True)
 
     best = study.best_params
-    print(f"\nBest: C={best['C']:.6f}  kernel={best['kernel']}  gamma={best['gamma']}  "
-          f"(Macro-F1={study.best_value:.4f})")
-    print(f"\n-> Update main_svm.py:")
-    print(f"SVM_C      = {best['C']:.6f}")
-    print(f"SVM_KERNEL = \"{best['kernel']}\"")
-    print(f"SVM_GAMMA  = \"{best['gamma']}\"")
-    print(f"SVM_CLASS_WEIGHT = {best['class_weight']!r}")
+    print(f"\nBest var_smoothing: {best['var_smoothing']:.4e}  (Macro-F1={study.best_value:.4f})")
+    print(f"\n-> Writing to r5.2/src/config.py:")
+    print(f"VAR_SMOOTHING = {best['var_smoothing']:.6e}")
 
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     main()

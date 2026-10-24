@@ -8,7 +8,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import config
 from src import quantum_config as qconfig
@@ -17,7 +17,7 @@ ARCH_SEARCH = __import__("os").environ.get("QUANTUM_ARCH_SEARCH", "1") == "1"
 from src.data_process import prepare_cert_embeddings, create_tuning_eval_split
 from src.data_process import GroupAwareStratifiedKFold as StratifiedKFold, use_full_pool
 use_full_pool()
-from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config([_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'src', 'config.py'), _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'src', 'quantum_config.py')])
+from src.optuna_autowrite import autowrite_printed_config; import os as _os; autowrite_printed_config([_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'src', 'config.py'), _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'src', 'quantum_config.py')])
 from src.models.quantum_vqc import HybridQuantumModel
 
 try:
@@ -192,5 +192,5 @@ def main():
 
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     main()

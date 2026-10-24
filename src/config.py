@@ -7,7 +7,6 @@ USE_SPEDIA = False
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BEHAVIORAL_FEATURES_PATH = os.path.join(BASE_DIR, "data", "behavioral_features.pkl")
-SPEDIA_FEATURES_PATH = os.path.join(BASE_DIR, "data", "spedia_behavioral_features.pkl")
 CHECKPOINT_DIR = os.path.join(BASE_DIR, "checkpoints_3")
 RESULTS_DIR = os.path.join(BASE_DIR, "results_3")
 CACHE_DIR = os.path.join(BASE_DIR, "cache_3")

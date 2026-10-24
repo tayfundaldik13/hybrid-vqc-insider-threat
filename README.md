@@ -1,162 +1,89 @@
+# Reliable Insider Threat Detection Under Data Scarcity: A Hybrid Variational Quantum Classifier
 
-# Hybrid Variational Quantum Circuit for Insider Threat Detection
+Code and per-fold results for the paper by Fatih Şahin and Erdoğan Tayfun Daldık (IEEE Access, under review).
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/) [![PennyLane](https://img.shields.io/badge/PennyLane-0.36%2B-green)](https://pennylane.ai/) 
+The Hybrid-VQC maps 16 PCA components of daily user behavior to a 9-qubit amplitude-encoded state, processes it with a StronglyEntanglingLayers ansatz, and classifies the Pauli-Z expectation values with a small classical head and learned temperature scaling. It is compared with nine classical baselines on CERT r4.2, CERT r5.2, and SPEDIA at training sizes of 50, 100, 250, and 500 samples, and on the full CERT r4.2 dataset. All quantum results come from noiseless state-vector simulation.
 
-> **Hybrid Quantum-Classical Neural Network architecture combining Variational Quantum Circuits (VQC).**
-
----
-
-## Overview
-
-This repository contains the full reproducibility bundle for the paper:
-
-**"A Hybrid Variational Quantum Circuit Approach for Insider Threat Detection"**  
-_Erdoğan Tayfun Daldık, Dr. Fatih Şahin 
-The core contribution is a **Hybrid-VQC** model that integrates:
-
-- PennyLane `StronglyEntanglingLayers`
-- Amplitude embedding of behavioral feature vectors
-- Pauli-Z measurement → classical post-quantum head
-- Temperature scaling for calibration
-- Evaluated against BiLSTM (Singh et al.), SVM, and Naive Bayes baselines
-
-A key empirical finding is **BiLSTM catastrophic degradation** on CERT r5.2 as training size grows, while Hybrid-VQC maintains stable, reliable performance — making it particularly suited for real-world insider threat scenarios where labeled data is scarce.
-
----
-
-## Repository Structure
+## Model
 
 ```
-hybrid-vqc-insider-threat/
-├── data/                          # CERT r4.2 preprocessed features
-├── r5.2/                          # CERT r5.2 dataset pipeline
-├── spedia/                        # SPEDIA dataset pipeline
-├── optuna/                        # Hyperparameter search logs
-├── src/                           # Shared utilities and modules
-├── preprocess_behavioral.py       # Feature engineering — CERT r4.2 / r5.2
-├── preprocess_spedia.py           # Feature engineering — SPEDIA
-├── main_quantum.py                # Hybrid-VQC training & evaluation
-├── main_nb.py                     # Naive Bayes baseline
-├── main_svm.py                    # SVM baseline
-├── main_singh.py                  # Singh et al. replication
-├── ablation_quantum.py            # 12-variant ablation study for CERT r4.2
-├── .gitattributes            
-└── .gitignore
+PCA(16) -> Linear(16 -> 2^n) + tanh -> L2 normalization -> AmplitudeEmbedding(n qubits)
+        -> StronglyEntanglingLayers(L) -> <Z_i>, i = 1..n -> MLP head -> logit / T
 ```
 
----
+| Dataset   | Qubits | Layers | Pre-quantum         | Head          | Trainable parameters |
+|-----------|--------|--------|---------------------|---------------|----------------------|
+| CERT r4.2 | 9      | 2      | 16 -> 512           | 9 -> 8 -> 1   | 8,848                |
+| CERT r5.2 | 9      | 4      | 16 -> 32 -> 512     | 9 -> 8 -> 4 -> 1 | 17,670            |
+| SPEDIA    | 7      | 2      | 16 -> 128 -> 128    | 7 -> 8 -> 4 -> 1 | 18,836            |
 
-## Datasets
+The temperature T is a learned parameter (initial value 1.5, clamped to [0.5, 10]). The full-data CERT r4.2 experiment uses the CERT r4.2 architecture.
 
-|Dataset|Version|Samples|Features|Threat Ratio|
-|---|---|---|---|---|
-|CERT Insider Threat|r4.2|~70K|26|~1%|
-|CERT Insider Threat|r5.2|~70K|29|~1%|
-|SPEDIA|—|variable|—|balanced|
+## Baselines
 
-> **Note:** Raw CERT dataset files are **not included** in this repository. Request access at [https://resources.sei.cmu.edu/library/asset-view.cfm?assetid=508099](https://resources.sei.cmu.edu/library/asset-view.cfm?assetid=508099).  
-> The `.pkl` files (preprocessed behavioral features) are tracked via **Git LFS**.
+Naive Bayes, linear SVM, BiLSTM (Singh et al.), Random Forest, XGBoost, MLP, Transformer encoder, ResHybNet, and SCARF (self-supervised). All models receive the same 16 PCA features and the same outer folds.
 
----
+## Protocol
 
-## Architecture
+- 10 random seeds (42 to 51) x 5 outer folds = 50 paired observations per model, dataset, and training size.
+- Inner Optuna search (TPE, 10 trials for the Hybrid-VQC) on a 75/25 split of each outer training fold; the Hybrid-VQC inner search tunes learning rate, batch size, and number of epochs. The architecture is fixed by the global search.
+- Classical baseline hyperparameters are in the `config.py` files.
+- Statistics: two-sided Wilcoxon signed-rank tests on the 50 paired values, Benjamini-Hochberg correction over all 324 tests, Cohen's d, mean ranks, and Shapiro-Wilk tests.
+
+## Repository structure
 
 ```
-Input Features (26/29-dim)
-        │
-   [Amplitude Embedding]
-        │
-   [StronglyEntanglingLayers]
-   9 qubits × 2 layers
-   Ring CNOT entanglement
-        │
-   [Pauli-Z Measurement]
-        │
-   [Classical Head]
-   Dense → BN → Dropout → Dense
-        │
-   Binary Output (Insider / Normal)
+src/                 CERT r4.2 configuration, data processing, models, metrics
+main_*.py            CERT r4.2 progressive experiments, one script per model
+parallel_quantum.py  parallel runner for the Hybrid-VQC (worker / aggregate)
+run_parallel_quantum.sh, quantum_status.sh
+optuna/              hyperparameter search scripts for CERT r4.2
+ablation_quantum.py  ablation study on CERT r4.2
+preprocess_behavioral.py  CERT r4.2 feature extraction
+r5.2/                CERT r5.2 (same layout: src/, main_*.py, optuna/, preprocess)
+spedia/              SPEDIA (same layout: src/, main_*.py, optuna/, preprocess_spedia.py)
+all_data/            full-data CERT r4.2 experiment (main_*_all.py, parallel runner, status_parallel.sh)
+stats/paper_statistics.py  reproduces the statistical tables from the result files
+results/             per-fold results used in the paper
+data/                preprocessed CERT r4.2 features (Git LFS); r5.2/data/ and spedia/data/ hold the other datasets
 ```
 
----
+## Setup
 
-## Installation
-
-```bash
-git clone https://github.com/tayfundaldik13/hybrid-vqc-insider-threat.git
-cd hybrid-vqc-insider-threat
-
-# Install dependencies
-pip install pennylane torch scikit-learn numpy pandas optuna
-
-# Pull LFS files (large .pkl files)
-git lfs pull
+```
+pip install -r requirements.txt
 ```
 
-### Requirements
+Tested with Python 3.10 on Linux.
 
-- Python 3.9+
-- PennyLane ≥ 0.36
-- PyTorch ≥ 2.0
-- scikit-learn
-- Optuna (hyperparameter search)
-- NumPy, Pandas
+## Running
 
----
+Each script is run from its own dataset folder:
 
-## Usage
-
-### 1. Preprocess
-
-```bash
-# CERT r4.2 / r5.2
-python preprocess_behavioral.py
-
-# SPEDIA
-python preprocess_spedia.py
+```
+python main_quantum.py            # CERT r4.2, Hybrid-VQC
+python main_rf.py                 # CERT r4.2, Random Forest (same pattern for every baseline)
+cd r5.2 && python main_quantum.py
+cd spedia && python main_quantum.py
+cd all_data && python main_quantum_all.py
 ```
 
-### 2. Train Hybrid-VQC
+The Hybrid-VQC can also be run in parallel with `run_parallel_quantum.sh` (and `all_data/run_parallel_quantum_all.sh`); `quantum_status.sh` reports progress.
 
-```bash
-python main_quantum.py
+The raw CERT logs are not included. To rebuild the feature files, place the CERT r4.2 release and the answers folder under `raw_data/r4.2` and `raw_data/answers`, and the r5.2 release under `r5.2/raw_data/r5.2` and `r5.2/raw_data/answers` (or set `CERT_R42_DIR`, `CERT_R52_DIR`, `CERT_ANSWERS_DIR`), then run `preprocess_behavioral.py` in the corresponding folder.
+
+Each dataset folder has an `optuna/` folder with one search script per model, run from that dataset folder (for example `python optuna/optuna_quantum.py` or `cd r5.2 && python optuna/optuna_quantum.py`). The scripts write the best values they find into the configuration files. The configuration files already contain the values used in the paper, so the search does not need to be rerun to reproduce the results.
+
+## Statistics
+
+```
+python stats/paper_statistics.py --r42 results/cert_r4.2 --r52 results/cert_r5.2 --spedia results/spedia
 ```
 
-### 3. Run Baselines
+This prints the Wilcoxon summary, the Cohen's d tables, the mean ranks, and the Shapiro-Wilk tests reported in the paper, and writes all 324 test results to `statistics_output/wilcoxon_all_tests.csv`.
 
-```bash
-python main_svm.py
-python main_nb.py
-python main_singh.py
+## Citation
+
 ```
-
-### 4. Ablation Study (12 variants)
-
-```bash
-python ablation_quantum.py
+F. Şahin and E. T. Daldık, "Reliable Insider Threat Detection Under Data Scarcity: A Hybrid Variational Quantum Classifier," IEEE Access, under review.
 ```
-
----
-
-## Results Summary
-
-Hybrid-VQC consistently outperforms classical baselines in **MCC and Specificity** under low-data conditions across all three datasets. Full tables and figures are available in the paper.
-
-|Model|Dataset|F1|MCC|Specificity|
-|---|---|---|---|---|
-|Hybrid-VQC|CERT r4.2|—|—|—|
-|Hybrid-VQC|CERT r5.2|—|—|—|
-|BiLSTM|CERT r5.2|↘ degrades|↘|↘|
-|SVM|CERT r4.2|—|—|—|
-
-_(Full results in paper — table cells to be filled post-acceptance)_
-
----
-
-## Contact
-
-**Erdoğan Tayfun Daldık**  
-Computer Engineering, Topkapı University, Istanbul  
-Supervised by Dr. Fatih Şahin (Topkapı University)  
-GitHub: [@tayfundaldik13](https://github.com/tayfundaldik13)

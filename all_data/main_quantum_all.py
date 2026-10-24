@@ -29,11 +29,9 @@ config = _ilu.module_from_spec(_cfg); _cfg.loader.exec_module(config)
 _qcfg = _ilu.spec_from_file_location("src.quantum_config", os.path.join(_ROOT_DIR, "src", "quantum_config.py"))
 qconfig = _ilu.module_from_spec(_qcfg); _qcfg.loader.exec_module(qconfig)
 del _ilu, _cfg, _qcfg
-from paper_arch import check_config as _check_arch
-_check_arch(qconfig, "r4.2")
 from src.models.quantum_vqc import (
     HybridQuantumModel, save_hybrid_checkpoint,
-    load_hybrid_checkpoint, get_hybrid_checkpoint_path
+    get_hybrid_checkpoint_path
 )
 from src.data_process import load_behavioral_features, create_nested_folds
 from src.utils import (

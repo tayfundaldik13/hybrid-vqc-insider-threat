@@ -133,8 +133,6 @@ def use_tuning_pool():
     pass
 
 
-def use_eval_pool():
-    pass
 
 
 class GroupAwareStratifiedKFold:

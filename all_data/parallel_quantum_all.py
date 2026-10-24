@@ -20,8 +20,6 @@ torch.set_num_threads(1)
 
 import main_quantum_all as mq
 from main_quantum_all import config, qconfig
-from paper_arch import check_config as _check_arch
-_check_arch(qconfig, "r4.2")
 
 SMOKE = "--smoke" in sys.argv
 _ARGS = [a for a in sys.argv[1:] if a != "--smoke"]

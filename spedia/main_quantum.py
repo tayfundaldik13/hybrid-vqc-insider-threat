@@ -19,17 +19,14 @@ except ImportError:
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config as cfg
 from src import quantum_config as qconfig
-from paper_arch import check_config as _check_arch
-_check_arch(qconfig, "spedia")
 from src.data_process import (
     prepare_spedia_embeddings, create_nonoverlapping_stages, create_nested_folds
 )
 from src.models.quantum_vqc import (
     HybridQuantumModel, save_hybrid_checkpoint,
-    load_hybrid_checkpoint, get_hybrid_checkpoint_path
+    get_hybrid_checkpoint_path
 )
 from src.utils import (
     calculate_metrics, plot_confusion_matrix,
